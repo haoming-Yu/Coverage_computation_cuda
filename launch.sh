@@ -1,0 +1,1 @@
+./build/COVERAGE -m ./data/underground/mesh/filtered_mesh.ply -i ./data/underground/intrinsic.log -e ./data/underground/traj.log -d ./data/underground/depth

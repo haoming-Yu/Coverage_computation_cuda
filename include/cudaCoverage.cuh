@@ -3,6 +3,8 @@
 
 #include <cuda_runtime.h>
 
+#define DEPTH_MAP_THRESHOLD 0.01f
+
 namespace Coverage {
 
 /**
@@ -27,6 +29,7 @@ namespace Coverage {
  */
 __device__ bool is_point_visible(
     const float3& point_world,
+    const int camera_idx,
     const float* d_R_cw,
     const float* d_t_cw,
     const float fx,
@@ -34,7 +37,8 @@ __device__ bool is_point_visible(
     const float cx,
     const float cy,
     const float img_width,
-    const float img_height);
+    const float img_height,
+    const float* d_depth_maps);
 
 /**
  * @brief CUDA Kernel function: generate visibility matrix.
@@ -45,6 +49,7 @@ __device__ bool is_point_visible(
  * @param intrinsics                camera intrinsics
  * @param d_extrinsics_array        camera extrinsics
  * @param d_points_array            3D points
+ * @param d_depth_maps                array of depth maps
  * @param d_visibility_matrix       output visibility matrix
  * @param num_cameras               number of cameras
  * @param num_points                number of points
@@ -53,9 +58,11 @@ __global__ void generateVisibilityMatrixKernel(
     const float* __restrict__ intrinsics, // camera intrinsics
     const float* __restrict__ d_extrinsics_array, // camera extrinsics
     const float3* __restrict__ d_points_array, // 3D points
+    const float* __restrict__ d_depth_maps, // depth maps array
     unsigned char* __restrict__ d_visibility_matrix, // output visibility matrix
     int num_cameras, // number of cameras
-    int num_points); // number of points
+    int num_points   // number of points
+    ); 
 
 
 /**
@@ -84,16 +91,19 @@ __global__ void findCandidateCameraKernel(
  * A CPU wrapper for CUDA Kernel
  * 
  * @param intrinsic                 camera intrinsics
- * @param extrinsics_array        camera extrinsics
- * @param d_points_array            3D points
- * @param d_visibility_matrix       output visibility matrix
+ * @param extrinsics                camera extrinsics
+ * @param points                    3D points
+ * @param depth_maps                a float array of depth map, the sequence is: depth_map number, rows, cols (on cpu for now)
  * @param num_cameras               number of cameras
  * @param num_points                number of points
+ * @param visibility_matrix         output visibility matrix, from GPU to CPU
+ * @param candidate_camera_mask     output candidate camera mask, the size is exactly the same as the num_cameras
  */
 void getVisibilityMatrixKernel(
     const float* intrinsic,   // camera intrinsic, in the format of a float*, (0, 1, 2, 3, 4, 5) -> (fx, fy, cx, cy, img_width, img_height)
     const float* extrinsics,  // camera extrinsics, in the format of a float*, 12 elements a group, records the element of T matrix from (0, 0) to (2, 3)
     const float3* points,     // point coordinates, in the format of float3*
+    const float* depth_maps,  // depth maps' array, the sequence is: depth_map number, rows, cols
     int num_cameras,          // camera number, also group number of extrinsics array
     int num_points,           // point number, also length of points array
     unsigned char* visibility_matrix,   // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU

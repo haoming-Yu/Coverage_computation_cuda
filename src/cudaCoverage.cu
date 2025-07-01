@@ -11,10 +11,12 @@ void Coverage::getVisibilityMatrixKernel(
     const float* intrinsic,   // camera intrinsic, in the format of a float*, (0, 1, 2, 3, 4, 5) -> (fx, fy, cx, cy, img_width, img_height)
     const float* extrinsics,  // camera extrinsics, in the format of a float*, 12 elements a group, records the element of T matrix from (0, 0) to (2, 3)
     const float3* points,     // point coordinates, in the format of float3*
+    const float* depth_maps,  // depth maps' array, the sequence is: depth_map number, rows, cols
     int num_cameras,          // camera number, also group number of extrinsics array
     int num_points,           // point number, also length of points array
     unsigned char* visibility_matrix, // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU
     unsigned int* candidate_camera_mask // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
+    
 ) {
     // 1. generate visibility matrix
     // first, allocate memory on GPU for visibility matrix
@@ -34,6 +36,16 @@ void Coverage::getVisibilityMatrixKernel(
     CUDA_CHECK(cudaMalloc((void**)&points_gpu, num_points * sizeof(float3)));
     CUDA_CHECK(cudaMemcpy(points_gpu, points, num_points * sizeof(float3), cudaMemcpyHostToDevice));
 
+    float* depth_maps_gpu;
+    // rows and cols are the width and height of the depth map, which is the same as the image size
+    // rows can be obtained from image_width, intrinsic[4]
+    // cols can be obtained from image_height, intrinsic[5]
+    CUDA_CHECK(cudaMalloc((void**)&depth_maps_gpu, num_cameras * intrinsic[4] * intrinsic[5] * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(depth_maps_gpu, depth_maps, num_cameras * intrinsic[4] * intrinsic[5] * sizeof(float), cudaMemcpyHostToDevice));
+
+    // for debugging, print the depth maps' size
+    std::cout << "depth maps' size: " << intrinsic[4] << "x" << intrinsic[5] << std::endl;
+    
     size_t total_combinations = (size_t)num_cameras * num_points;
     // prepare to call the kernel function
     int threadsPerBlock = 1024;
@@ -51,7 +63,7 @@ void Coverage::getVisibilityMatrixKernel(
 
     CUDA_CHECK(cudaEventRecord(start));
     // call the kernel function to generate visibility matrix
-    Coverage::generateVisibilityMatrixKernel<<<gridSize, threadsPerBlock>>>(intrinsic_gpu, extrinsics_gpu, points_gpu, visibility_matrix_gpu, num_cameras, num_points);
+    Coverage::generateVisibilityMatrixKernel<<<gridSize, threadsPerBlock>>>(intrinsic_gpu, extrinsics_gpu, points_gpu, depth_maps_gpu, visibility_matrix_gpu, num_cameras, num_points);
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -132,10 +144,12 @@ void Coverage::getVisibilityMatrixKernel(
     CUDA_CHECK(cudaFree(points_gpu));
     CUDA_CHECK(cudaFree(d_point_candidate_camera_index_gpu));
     CUDA_CHECK(cudaFree(d_candidate_camera_mask_gpu));
+    CUDA_CHECK(cudaFree(depth_maps_gpu));
 }
 
 __device__ bool Coverage::is_point_visible(
     const float3& point_world,
+    const int camera_idx,
     const float* d_R_cw,
     const float* d_t_cw,
 
@@ -144,7 +158,8 @@ __device__ bool Coverage::is_point_visible(
     const float cx,
     const float cy,
     const float img_width,
-    const float img_height) {
+    const float img_height,
+    const float* d_depth_maps) {
     // 1. convert the 3D point from the world coordinate system to the camera coordinate system
     // manually calculate the matrix multiplication
     float3 point_camera;
@@ -160,8 +175,24 @@ __device__ bool Coverage::is_point_visible(
     // 3. project 3D point to uv coordinates, u = fx * (px_cam / pz_cam) + cx, v = fy * (py_cam / pz_cam) + cy
     float u = fx * (point_camera.x / point_camera.z) + cx;
     float v = fy * (point_camera.y / point_camera.z) + cy;
+
+    int u_int = (int)u;
+    int v_int = (int)v;
+
+    // test if the point is within the image boundaries
+    if (u_int < 0 || u_int >= img_width || v_int < 0 || v_int >= img_height) {
+        return false;
+    }
+
+    // 4. get current depth value
+    int index_approximate_depth_map = camera_idx * img_width * img_height + v_int * img_width + u_int;
+    float current_depth = d_depth_maps[index_approximate_depth_map];
+
+    if (fabs(current_depth - point_camera.z) > DEPTH_MAP_THRESHOLD) {
+        return false;
+    }
     
-    // 4. check if the point is within the image boundaries
+    // 5. check if the point is within the image boundaries
     return (u >= 0 && u < img_width && v >= 0 && v < img_height);
 }   
 
@@ -169,6 +200,7 @@ __global__ void Coverage::generateVisibilityMatrixKernel(
     const float* __restrict__ d_intrinsic, // camera intrinsic, fx, fy, cx, cy, img_width, img_height
     const float* __restrict__ d_extrinsics_array, // camera extrinsics
     const float3* __restrict__ d_points_array, // 3D points
+    const float* __restrict__ d_depth_maps, // depth maps array
     unsigned char* __restrict__ d_visibility_matrix, // output visibility matrix
     int num_cameras, // number of cameras
     int num_points) { // number of points
@@ -243,7 +275,8 @@ __global__ void Coverage::generateVisibilityMatrixKernel(
         d_t_cw[2] = d_T_cw[11];
 
         const float3& point_world = d_points_array[point_index];
-        bool is_visible = is_point_visible(point_world, d_R_cw, d_t_cw, d_intrinsic[0], d_intrinsic[1], d_intrinsic[2], d_intrinsic[3], d_intrinsic[4], d_intrinsic[5]);
+
+        bool is_visible = is_point_visible(point_world, camera_index, d_R_cw, d_t_cw, d_intrinsic[0], d_intrinsic[1], d_intrinsic[2], d_intrinsic[3], d_intrinsic[4], d_intrinsic[5], d_depth_maps);
         // for debugging, get visible points
         // if (is_visible) {
         //     printf("point %d is visible in camera %d\n", point_index, camera_index);
