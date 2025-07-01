@@ -30,14 +30,33 @@ int main(int argc, char** argv) {
         if (arg == "-h" || arg == "--help") {
             printUsage(argv[0]);
             return 0;
-        } else if (arg == "-m" && i + 1 < argc) {
-            mesh_path = argv[++i];
-        } else if (arg == "-i" && i + 1 < argc) {
-            intrinsic_path = argv[++i];
-        } else if (arg == "-e" && i + 1 < argc) {
-            extrinsic_path = argv[++i];
-        } else if (arg == "-d" && i + 1 < argc) {
-            depth_dir = argv[++i];
+        }
+        
+        if (i + 1 >= argc) {
+            std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
+            printUsage(argv[0]);
+            return -1;
+        }
+
+        if (arg == "-m" || arg == "-i" || arg == "-e" || arg == "-d") {
+            switch (arg[1]) {
+                case 'm':
+                    mesh_path = argv[++i];
+                    break;
+                case 'i':
+                    intrinsic_path = argv[++i];
+                    break;
+                case 'e':
+                    extrinsic_path = argv[++i];
+                    break;
+                case 'd':
+                    depth_dir = argv[++i];
+                    break;
+                default:
+                    std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
+                    printUsage(argv[0]);
+                    return -1;
+            }
         } else {
             std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
             printUsage(argv[0]);
