@@ -4,9 +4,9 @@
 ## What is this repo for
 during my usage of mvs-texture(https://github.com/nmoehrle/mvs-texturing)，I found that the captured images might have two problems which cause the result to be bad:
 
-    1. the images might be too sparse to cover the whole scene. Thus I need to capture images at a high frequency. In my case, I set the storage frequence at 1 FPS.
+1. the images might be too sparse to cover the whole scene. Thus I need to capture images at a high frequency. In my case, I set the storage frequence at 1 FPS.
 
-    2. However, if the images are captured or filtered at a fixed frequency using a scanner(which is a mostly possible design for robotics, scanner, and many SLAM scenarios), it would be hard to control the images cover the whole scene while use least images to do that(reduce the redundant images).
+2. However, if the images are captured or filtered at a fixed frequency using a scanner(which is a mostly possible design for robotics, scanner, and many SLAM scenarios), it would be hard to control the images cover the whole scene while use least images to do that(reduce the redundant images).
 
 Based on those observations, I decide to write a coverage post-processing node to control the image number. In other word, reduce the redundant image frames while maximize the coverage of the scene.
 
