@@ -5,15 +5,17 @@
 #include <cuda_runtime.h>
 #include <iostream> 
 #include <fstream>
+#include <experimental/filesystem>
 
 // Simple helper to print usage information
 void printUsage(const char* progName) {
-    std::cout << "Usage: " << progName << " -m <mesh_file> -i <intrinsic_file> -e <extrinsic_file> -d <depth_directory>\n";
+    std::cout << "Usage: " << progName << " -m <mesh_file> -i <intrinsic_file> -e <extrinsic_file> -d <depth_directory> -p <image_directory>\n";
     std::cout << "\nOptions:\n";
     std::cout << "  -m <mesh_file>        Path to the mesh .ply file\n";
     std::cout << "  -i <intrinsic_file>   Path to the camera intrinsic log file\n";
     std::cout << "  -e <extrinsic_file>   Path to the camera extrinsic trajectory log file\n";
     std::cout << "  -d <depth_directory>  Directory containing depth maps\n";
+    std::cout << "  -p <image_directory>  Directory containing images\n";
     std::cout << "  -h, --help            Show this help message and exit\n";
 }
 
@@ -23,7 +25,7 @@ int main(int argc, char** argv) {
     std::string intrinsic_path;
     std::string extrinsic_path;
     std::string depth_dir;
-
+    std::string image_dir;
     // Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -38,7 +40,7 @@ int main(int argc, char** argv) {
             return -1;
         }
 
-        if (arg == "-m" || arg == "-i" || arg == "-e" || arg == "-d") {
+        if (arg == "-m" || arg == "-i" || arg == "-e" || arg == "-d" || arg == "-p") {
             switch (arg[1]) {
                 case 'm':
                     mesh_path = argv[++i];
@@ -51,6 +53,10 @@ int main(int argc, char** argv) {
                     break;
                 case 'd':
                     depth_dir = argv[++i];
+                    break;
+                case 'p':
+                    image_dir = argv[++i];
+                    std::cout << "image_dir: " << image_dir << std::endl;
                     break;
                 default:
                     std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
@@ -78,7 +84,7 @@ int main(int argc, char** argv) {
 
     Camera::Cam cam;
     cam.loadIntrinsic(intrinsic_path);
-    cam.loadExtrinsics(extrinsic_path);
+    cam.loadExtrinsics_colormap(extrinsic_path);
     cam.dump_intrinsic_to_float(); // prepare for the data loading of gpu
     // dump has been checked, and the data is correct
     cam.dump_extrinsic_to_float();
@@ -113,7 +119,10 @@ int main(int argc, char** argv) {
         if (candidate_camera_mask[i] == 1) {
             num_candidate_cameras++;
         }
+        // for debugging, print the candidate camera mask to check the completeness of the coverage
+        // std::cout << candidate_camera_mask[i] << " ";
     }
+    // std::cout << std::endl;
     std::cout << "number of candidate cameras: " << num_candidate_cameras << std::endl;
 
     // for debugging, check the correctness of the visibility matrix
@@ -137,6 +146,26 @@ int main(int argc, char** argv) {
     // } else {
     //     std::cerr << "Unable to open file for writing" << std::endl;
     // }
+
+    // create a new folder to store the filtered images, 
+    // if the folder already exists, delete the folder and anything inside it by force
+    std::string image_dst_folder = image_dir + "_filtered_with_cam";
+    if (std::experimental::filesystem::exists(image_dst_folder)) {
+        std::experimental::filesystem::remove_all(image_dst_folder);
+    }
+    std::experimental::filesystem::create_directory(image_dst_folder);
+    bool filter_success = cam.filter_images_with_mask(candidate_camera_mask, image_dir, image_dst_folder);
+    if (!filter_success) {
+        std::cerr << "Failed to filter images with mask" << std::endl;
+        return -1;
+    }
+
+    // filter the extrinsics, put the filtered extrinsics in the same folder as the filtered images
+    bool extrinsic_filter_success = cam.filter_extrinsics_with_mask(candidate_camera_mask, image_dst_folder);
+    if (!extrinsic_filter_success) {
+        std::cerr << "Failed to filter extrinsics with mask" << std::endl;
+        return -1;
+    }
 
     return 0;
 }   

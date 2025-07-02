@@ -54,6 +54,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 # link cuda lib
 target_link_libraries(${PROJECT_NAME}
+    stdc++fs
     cuda
     cudart
     ${CUDA_LIBRARIES}

@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <opencv2/opencv.hpp>
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
@@ -51,7 +52,8 @@ public:
     Cam();
     ~Cam() {};
     void loadIntrinsic(const std::string& intrinsic_file);
-    void loadExtrinsics(const std::string& extrinsic_file);
+    void loadExtrinsics_colormap(const std::string& extrinsic_file); // this method loads the traj.log file format which adopted by COLORMAP
+
     Extrinsic getExtrinsic(int idx) { return extrinsics_[idx]; }
     Intrinsic getIntrinsic() { return intrinsic_; }
     float* dump_intrinsic_to_float() {
@@ -81,6 +83,49 @@ public:
             this->float_extrinsic_[i * 12 + 11] = this->extrinsics_[i].T_cw(2, 3);
         }
         return this->float_extrinsic_;
+    }
+
+    // for images, we need to save space on memory, thus do not store images in class, just read out and directly save to a new folder
+    bool filter_images_with_mask(unsigned int* mask, const std::string& image_src_folder, const std::string& image_dst_folder) {
+        int num_camera_no_filter = this->extrinsics_.size();
+        for (int i = 0; i < num_camera_no_filter; i++) {
+            if (mask[i] == 1) {
+                std::string image_path = image_src_folder + "/imgs_" + std::to_string(i + 1) + ".jpg";
+                cv::Mat image = cv::imread(image_path);
+                if (image.empty()) {
+                    std::cout << "Could not open image file: " << image_path << std::endl;
+                    return false;
+                }
+                // here we keep the image name unchanged to debug easier
+                std::string image_dst_path = image_dst_folder + "/imgs_" + std::to_string(i + 1) + ".jpg";
+                cv::imwrite(image_dst_path, image);
+                // std::cout << "Filtered image saved to: " << image_dst_path << std::endl;
+            }
+        }
+        return true;
+    }
+    // no need for source, we've saved one extrinsic vector for cuda processing
+    // and the extrinsic is saved in a format that is required by mvs-texture
+    bool filter_extrinsics_with_mask(unsigned int* mask, const std::string& extrinsic_dst_folder) {
+        int num_camera_no_filter = this->extrinsics_.size();
+        for (int i = 0; i < num_camera_no_filter; i++) {
+            if (mask[i] == 1) {
+                // here we name the corresponding extrinsic file the same name as the image file except the extension for mvs-texture to find.
+                std::string extrinsic_path = extrinsic_dst_folder + "/imgs_" + std::to_string(i + 1) + ".cam";
+                std::ofstream extrinsic_file(extrinsic_path);
+                if (!extrinsic_file.is_open()) {
+                    std::cout << "Could not open extrinsic file: " << extrinsic_path << std::endl;
+                    return false;
+                }
+                // world to camera extrinsic
+                // first row: tx ty tz R00 R01 R02 R10 R11 R12 R20 R21 R22
+                extrinsic_file << this->extrinsics_[i].t_cw(0) << " " << this->extrinsics_[i].t_cw(1) << " " << this->extrinsics_[i].t_cw(2) << " " << this->extrinsics_[i].R_cw(0, 0) << " " << this->extrinsics_[i].R_cw(0, 1) << " " << this->extrinsics_[i].R_cw(0, 2) << " " << this->extrinsics_[i].R_cw(1, 0) << " " << this->extrinsics_[i].R_cw(1, 1) << " " << this->extrinsics_[i].R_cw(1, 2) << " " << this->extrinsics_[i].R_cw(2, 0) << " " << this->extrinsics_[i].R_cw(2, 1) << " " << this->extrinsics_[i].R_cw(2, 2) << std::endl;
+                // second row: f d0 d1 paspect ppx ppy
+                extrinsic_file << this->intrinsic_.fx / this->intrinsic_.img_width << " " << 0.0 << " " << 0.0 << " " << this->intrinsic_.fy / this->intrinsic_.fx << " " << this->intrinsic_.cx / this->intrinsic_.img_width << this->intrinsic_.cy / this->intrinsic_.img_height;
+                extrinsic_file.close();
+            }
+        }
+        return true;
     }
 public:
     float* float_intrinsic_;

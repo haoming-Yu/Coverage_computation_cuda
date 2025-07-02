@@ -38,7 +38,7 @@ void Cam::loadIntrinsic(const std::string& intrinsic_file) {
     file.close();
 }
 
-void Cam::loadExtrinsics(const std::string& extrinsic_file) {
+void Cam::loadExtrinsics_colormap(const std::string& extrinsic_file) {
     std::ifstream file(extrinsic_file);
     if (!file.is_open()) {
         throw std::runtime_error("Could not open extrinsic file: " + extrinsic_file);
