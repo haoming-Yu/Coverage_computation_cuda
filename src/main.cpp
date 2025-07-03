@@ -109,9 +109,9 @@ int main(int argc, char** argv) {
     std::cout << "coverage selection finished" << std::endl;
 
     // for debugging, to check the GPU performance
-    for (int test = 0; test < 100; test++) {
-        Coverage::getVisibilityMatrixKernel(cam.float_intrinsic_, cam.float_extrinsic_, vertexes.data(), depth.depth_maps_float_, num_cameras, num_points, visibility_matrix, candidate_camera_mask);
-    }
+    // for (int test = 0; test < 100; test++) {
+    //     Coverage::getVisibilityMatrixKernel(cam.float_intrinsic_, cam.float_extrinsic_, vertexes.data(), depth.depth_maps_float_, num_cameras, num_points, visibility_matrix, candidate_camera_mask);
+    // }
 
     // for debugging, check how many cameras are selected as candidate
     int num_candidate_cameras = 0;
