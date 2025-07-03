@@ -43,6 +43,7 @@ cd ..
 ## Result
 1. On NVIDIA RTX 4090 GPU, I can achieve to make it less than 5ms to process the problem. And I intend to first check mvs-texturing's correctness, then adjust the code to support Jetson platform.
 2. The Jetson has been tested, and it works well. You can switch to jetson branch to find the code with a few slight changes on the CMakeLists.txt and Launch. For now, the cuda is not changed. And might explore other cuda memory result on jetson platform. For now, cuda memory copy seems to perform a zero copy but conversion inside unified memory operation which surprise me.
+3. tested, cuda memory copy will increase the usage of swap memory, so need to be optimized to use less memory.
 ## What's more
 The repo is still under development, and I am the only developer to  maintain this repo. Any problem and issue is welcomed! But it may take some time for me to fix it. I am still a greenhorn on CUDA, and a first-year PhD student. Looking forward to anyone's precious suggestion.
 
