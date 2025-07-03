@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.18)
 project(COVERAGE CUDA CXX C)
 
+if(POLICY CMP0146)
+    cmake_policy(SET CMP0146 OLD)
+endif()
+
 # set C++ standard
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,7 +53,7 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 # set CUDA architectures
 set_target_properties(${PROJECT_NAME} PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES "89"  # adjust according to the architecture of GPUs
+    CUDA_ARCHITECTURES "72"  # adjust according to the architecture of GPUs
 )
 
 # link cuda lib

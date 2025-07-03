@@ -1,6 +1,9 @@
 #ifndef CAM_H
 #define CAM_H
 
+#include <iostream>
+#include <sstream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <opencv2/opencv.hpp>
