@@ -98,6 +98,7 @@ __global__ void findCandidateCameraKernel(
  * @param num_points                number of points
  * @param visibility_matrix         output visibility matrix, from GPU to CPU
  * @param candidate_camera_mask     output candidate camera mask, the size is exactly the same as the num_cameras
+ * @param point_candidate_camera_index output point candidate camera index, each element is the index of the candidate camera for the point, -1 means no camera is chosen for the point, the size is num_points.
  */
 void getVisibilityMatrixKernel(
     const float* intrinsic,   // camera intrinsic, in the format of a float*, (0, 1, 2, 3, 4, 5) -> (fx, fy, cx, cy, img_width, img_height)
@@ -107,7 +108,8 @@ void getVisibilityMatrixKernel(
     int num_cameras,          // camera number, also group number of extrinsics array
     int num_points,           // point number, also length of points array
     unsigned char* visibility_matrix,   // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU
-    unsigned int* candidate_camera_mask // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
+    unsigned int* candidate_camera_mask, // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
+    int* point_candidate_camera_index // point candidate camera index, each element is the index of the candidate camera for the point, -1 means no camera is chosen for the point, the size is num_points.
 );
 
 } // namespace Coverage

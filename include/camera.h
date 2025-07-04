@@ -10,6 +10,9 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
+#include "cudaUtils.cuh"
+#include <cuda_runtime.h>
+
 /* Note that here the intrinsic is directly written in the given path, the format is:
  * fx = 1302.39546
  * fy = 1301.80638
@@ -50,12 +53,18 @@ struct Extrinsic {
     Extrinsic() : T_wc(Eigen::Matrix4d::Identity()), R_wc(Eigen::Matrix3d::Identity()), t_wc(Eigen::Vector3d::Zero()), T_cw(Eigen::Matrix4d::Identity()), R_cw(Eigen::Matrix3d::Identity()), t_cw(Eigen::Vector3d::Zero()) {} // default to identity rotation and zero translation
 };
 
+struct Extrinsic_jetson {
+    float t00, t01, t02, t03, t10, t11, t12, t13, t20, t21, t22, t23; // 3 * 4 matrix, the last row 0, 0, 0, 1 is not stored
+};
+
 class Cam {
 public:
     Cam();
     ~Cam() {};
     void loadIntrinsic(const std::string& intrinsic_file);
+    void loadIntrinsic_jetson(const std::string& intrinsic_file);
     void loadExtrinsics_colormap(const std::string& extrinsic_file); // this method loads the traj.log file format which adopted by COLORMAP
+    void loadExtrinsics_colormap_jetson(const std::string& extrinsic_file); // use this method to support unified memory in jetson.
 
     Extrinsic getExtrinsic(int idx) { return extrinsics_[idx]; }
     Intrinsic getIntrinsic() { return intrinsic_; }
@@ -90,7 +99,7 @@ public:
 
     // for images, we need to save space on memory, thus do not store images in class, just read out and directly save to a new folder
     bool filter_images_with_mask(unsigned int* mask, const std::string& image_src_folder, const std::string& image_dst_folder) {
-        int num_camera_no_filter = this->extrinsics_.size();
+        int num_camera_no_filter = this->number_extrinsics;
         for (int i = 0; i < num_camera_no_filter; i++) {
             if (mask[i] == 1) {
                 std::string image_path = image_src_folder + "/imgs_" + std::to_string(i + 1) + ".jpg";
@@ -110,7 +119,7 @@ public:
     // no need for source, we've saved one extrinsic vector for cuda processing
     // and the extrinsic is saved in a format that is required by mvs-texture
     bool filter_extrinsics_with_mask(unsigned int* mask, const std::string& extrinsic_dst_folder) {
-        int num_camera_no_filter = this->extrinsics_.size();
+        int num_camera_no_filter = this->number_extrinsics;
         for (int i = 0; i < num_camera_no_filter; i++) {
             if (mask[i] == 1) {
                 // here we name the corresponding extrinsic file the same name as the image file except the extension for mvs-texture to find.
@@ -122,9 +131,23 @@ public:
                 }
                 // world to camera extrinsic
                 // first row: tx ty tz R00 R01 R02 R10 R11 R12 R20 R21 R22
-                extrinsic_file << this->extrinsics_[i].t_cw(0) << " " << this->extrinsics_[i].t_cw(1) << " " << this->extrinsics_[i].t_cw(2) << " " << this->extrinsics_[i].R_cw(0, 0) << " " << this->extrinsics_[i].R_cw(0, 1) << " " << this->extrinsics_[i].R_cw(0, 2) << " " << this->extrinsics_[i].R_cw(1, 0) << " " << this->extrinsics_[i].R_cw(1, 1) << " " << this->extrinsics_[i].R_cw(1, 2) << " " << this->extrinsics_[i].R_cw(2, 0) << " " << this->extrinsics_[i].R_cw(2, 1) << " " << this->extrinsics_[i].R_cw(2, 2) << std::endl;
+                Eigen::Matrix4d T_cw;
+                T_cw << this->unified_float_extrinsic_[i * 12 + 0], this->unified_float_extrinsic_[i * 12 + 1], this->unified_float_extrinsic_[i * 12 + 2], this->unified_float_extrinsic_[i * 12 + 3],
+                        this->unified_float_extrinsic_[i * 12 + 4], this->unified_float_extrinsic_[i * 12 + 5], this->unified_float_extrinsic_[i * 12 + 6], this->unified_float_extrinsic_[i * 12 + 7],
+                        this->unified_float_extrinsic_[i * 12 + 8], this->unified_float_extrinsic_[i * 12 + 9], this->unified_float_extrinsic_[i * 12 + 10], this->unified_float_extrinsic_[i * 12 + 11],
+                        0, 0, 0, 1;
+
+                Eigen::Matrix3d R_cw = T_cw.block<3, 3>(0, 0);
+                Eigen::Vector3d t_cw = T_cw.block<3, 1>(0, 3);
+                extrinsic_file << t_cw(0) << " " << t_cw(1) << " " << t_cw(2) << " " << R_cw(0, 0) << " " << R_cw(0, 1) << " " << R_cw(0, 2) << " " << R_cw(1, 0) << " " << R_cw(1, 1) << " " << R_cw(1, 2) << " " << R_cw(2, 0) << " " << R_cw(2, 1) << " " << R_cw(2, 2) << std::endl;
                 // second row: f d0 d1 paspect ppx ppy
-                extrinsic_file << this->intrinsic_.fx / this->intrinsic_.img_width << " " << 0.0 << " " << 0.0 << " " << this->intrinsic_.fy / this->intrinsic_.fx << " " << this->intrinsic_.cx / this->intrinsic_.img_width << this->intrinsic_.cy / this->intrinsic_.img_height;
+                float fx = this->unified_float_intrinsic_[0];
+                float fy = this->unified_float_intrinsic_[1];
+                float cx = this->unified_float_intrinsic_[2];
+                float cy = this->unified_float_intrinsic_[3];
+                float img_width = this->unified_float_intrinsic_[4];
+                float img_height = this->unified_float_intrinsic_[5];
+                extrinsic_file << fx / img_width << " " << 0.0 << " " << 0.0 << " " << fy / fx << " " << cx / img_width << " " << cy / img_height << std::endl;
                 extrinsic_file.close();
             }
         }
@@ -135,6 +158,12 @@ public:
     float* float_extrinsic_; // 3 * 4 world to camera extrinsics, to save space, the last row is not converted
     Intrinsic intrinsic_; // intrinsic parameters
     std::vector<Extrinsic, Eigen::aligned_allocator<Extrinsic>> extrinsics_; // extrinsic parameters
+
+    // for jetson design and usage
+    float* unified_float_intrinsic_; // allocated in unified memory
+    float* unified_float_extrinsic_; // allocated in unified memory, the same organization as float_extrinsic_ member, but in jetson, this is the only thing that is activated for extrinsic
+    // directly in world to camera format
+    int number_extrinsics;
 };
 
 }; // namespace Camera

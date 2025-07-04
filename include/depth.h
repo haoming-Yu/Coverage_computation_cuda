@@ -4,6 +4,9 @@
 #include <vector>
 #include <opencv2/opencv.hpp>
 
+#include <cuda_runtime.h>
+#include "cudaUtils.cuh"
+
 namespace Depth {
 
 /**
@@ -26,12 +29,16 @@ public:
     Depth();
     ~Depth() {};
     void loadDepthMaps(const std::string& depth_map_file_folder); // load all the depth maps from the given folder
+    void loadDepthMaps_jetson(const std::string& depth_map_file_folder); // load all the depth maps from the given folder, jetson version
     float* convertToFloat();
 
 public:
     std::vector<cv::Mat> depth_maps_;
-    int depth_map_num_; // number of depth maps, also number of cameras
+    int depth_map_num_; // number of depth maps, also number of cameras, also activated in jetson version
     float* depth_maps_float_;
+
+    // for jetson design and usage
+    float* unified_float_depth_maps_; // allocated in unified memory
 };
 
 } // namespace Depth

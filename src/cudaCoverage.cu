@@ -15,37 +15,9 @@ void Coverage::getVisibilityMatrixKernel(
     int num_cameras,          // camera number, also group number of extrinsics array
     int num_points,           // point number, also length of points array
     unsigned char* visibility_matrix, // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU
-    unsigned int* candidate_camera_mask // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
-    
+    unsigned int* candidate_camera_mask, // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
+    int* point_candidate_camera_index // point candidate camera index, each element is the index of the candidate camera for the point, -1 means no camera is chosen for the point, the size is num_points.
 ) {
-    // 1. generate visibility matrix
-    // first, allocate memory on GPU for visibility matrix
-    unsigned char* visibility_matrix_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&visibility_matrix_gpu, num_cameras * num_points * sizeof(unsigned char)));
-    
-    // then, allocate memory on GPU for elements needed to be uploaded
-    float* intrinsic_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&intrinsic_gpu, 6 * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(intrinsic_gpu, intrinsic, 6 * sizeof(float), cudaMemcpyHostToDevice));
-
-    float* extrinsics_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&extrinsics_gpu, num_cameras * 12 * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(extrinsics_gpu, extrinsics, num_cameras * 12 * sizeof(float), cudaMemcpyHostToDevice));
-
-    float3* points_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&points_gpu, num_points * sizeof(float3)));
-    CUDA_CHECK(cudaMemcpy(points_gpu, points, num_points * sizeof(float3), cudaMemcpyHostToDevice));
-
-    float* depth_maps_gpu;
-    // rows and cols are the width and height of the depth map, which is the same as the image size
-    // rows can be obtained from image_width, intrinsic[4]
-    // cols can be obtained from image_height, intrinsic[5]
-    CUDA_CHECK(cudaMalloc((void**)&depth_maps_gpu, num_cameras * intrinsic[4] * intrinsic[5] * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(depth_maps_gpu, depth_maps, num_cameras * intrinsic[4] * intrinsic[5] * sizeof(float), cudaMemcpyHostToDevice));
-
-    // for debugging, print the depth maps' size
-    std::cout << "depth maps' size: " << intrinsic[4] << "x" << intrinsic[5] << std::endl;
-    
     size_t total_combinations = (size_t)num_cameras * num_points;
     // prepare to call the kernel function
     int threadsPerBlock = 1024;
@@ -63,7 +35,7 @@ void Coverage::getVisibilityMatrixKernel(
 
     CUDA_CHECK(cudaEventRecord(start));
     // call the kernel function to generate visibility matrix
-    Coverage::generateVisibilityMatrixKernel<<<gridSize, threadsPerBlock>>>(intrinsic_gpu, extrinsics_gpu, points_gpu, depth_maps_gpu, visibility_matrix_gpu, num_cameras, num_points);
+    Coverage::generateVisibilityMatrixKernel<<<gridSize, threadsPerBlock>>>(intrinsic, extrinsics, points, depth_maps, visibility_matrix, num_cameras, num_points);
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -82,7 +54,7 @@ void Coverage::getVisibilityMatrixKernel(
     CUDA_CHECK(cudaEventRecord(start_thrust_count));
     // Loop through each camera (row) and use thrust::reduce to sum the visible points
     for (int camera_index = 0; camera_index < num_cameras; camera_index++) {
-        thrust::device_ptr<const unsigned char> row_start = thrust::device_pointer_cast(visibility_matrix_gpu + camera_index * num_points);
+        thrust::device_ptr<const unsigned char> row_start = thrust::device_pointer_cast(visibility_matrix + camera_index * num_points);
         thrust::device_ptr<const unsigned char> row_end = row_start + num_points;
 
         int sum_for_camera = thrust::reduce(row_start, row_end, 0, thrust::plus<int>());
@@ -103,12 +75,6 @@ void Coverage::getVisibilityMatrixKernel(
     CUDA_CHECK(cudaEventCreate(&start_candidate));
     CUDA_CHECK(cudaEventCreate(&stop_candidate));
 
-    int* d_point_candidate_camera_index_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&d_point_candidate_camera_index_gpu, num_points * sizeof(int)));
-    unsigned int* d_candidate_camera_mask_gpu;
-    CUDA_CHECK(cudaMalloc((void**)&d_candidate_camera_mask_gpu, num_cameras * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemset(d_candidate_camera_mask_gpu, 0, num_cameras * sizeof(unsigned int)));
-
     int candidate_blockSize = 256;
     int candidate_gridSize = (num_points + candidate_blockSize - 1) / candidate_blockSize;
 
@@ -117,10 +83,10 @@ void Coverage::getVisibilityMatrixKernel(
 
     CUDA_CHECK(cudaEventRecord(start_candidate));
     findCandidateCameraKernel<<<candidate_gridSize, candidate_blockSize>>>(
-        visibility_matrix_gpu,
+        visibility_matrix,
         d_camera_visible_points_count_ptr,
-        d_point_candidate_camera_index_gpu,
-        d_candidate_camera_mask_gpu,
+        point_candidate_camera_index,
+        candidate_camera_mask,
         num_cameras,
         num_points);
     CUDA_CHECK(cudaEventRecord(stop_candidate));
@@ -129,22 +95,6 @@ void Coverage::getVisibilityMatrixKernel(
     float candidate_milliseconds = 0;
     CUDA_CHECK(cudaEventElapsedTime(&candidate_milliseconds, start_candidate, stop_candidate));
     std::cout << "Kernel execution time for finding candidate cameras: " << candidate_milliseconds << " ms" << std::endl;
-
-    // copy d_candidate_camera_mask_gpu to CPU
-    CUDA_CHECK(cudaMemcpy(candidate_camera_mask, d_candidate_camera_mask_gpu, num_cameras * sizeof(unsigned int), cudaMemcpyDeviceToHost));
-    std::cout << "Downloaded candidate camera mask to CPU" << std::endl;
-
-    // finally, copy the data back to CPU
-    CUDA_CHECK(cudaMemcpy(visibility_matrix, visibility_matrix_gpu, num_cameras * num_points * sizeof(unsigned char), cudaMemcpyDeviceToHost));
-
-    // finally, free the memory on GPU
-    CUDA_CHECK(cudaFree(visibility_matrix_gpu));
-    CUDA_CHECK(cudaFree(intrinsic_gpu));
-    CUDA_CHECK(cudaFree(extrinsics_gpu));
-    CUDA_CHECK(cudaFree(points_gpu));
-    CUDA_CHECK(cudaFree(d_point_candidate_camera_index_gpu));
-    CUDA_CHECK(cudaFree(d_candidate_camera_mask_gpu));
-    CUDA_CHECK(cudaFree(depth_maps_gpu));
 }
 
 __device__ bool Coverage::is_point_visible(
@@ -289,7 +239,7 @@ __global__ void Coverage::findCandidateCameraKernel(
     const unsigned char* __restrict__ d_visibility_matrix,
     const int* __restrict__ d_camera_visible_points_count,
     int* __restrict__ d_point_candidate_camera_index,
-    unsigned int* __restrict__ d_candidate_camera_mask, // This pointer points to pinned memory accessible by CPU
+    unsigned int* __restrict__ d_candidate_camera_mask,
     int num_cameras,
     int num_points) {
     // 1. get point index
