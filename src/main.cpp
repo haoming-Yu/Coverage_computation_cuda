@@ -94,12 +94,10 @@ int main(int argc, char** argv) {
     assert(num_depth_maps == num_cameras && "number of depth maps should be equal to number of cameras");
 
     // for convenience
-    unsigned char* visibility_matrix;
-    CUDA_CHECK(cudaMallocManaged(&visibility_matrix, sizeof(unsigned char) * num_cameras * num_points));
-    CUDA_CHECK(cudaMemset(visibility_matrix, 0, sizeof(unsigned char) * num_cameras * num_points));
+    float* visibility_matrix;
+    CUDA_CHECK(cudaMallocManaged(&visibility_matrix, sizeof(float) * num_cameras * num_points));
     int* point_candidate_camera_index;
     CUDA_CHECK(cudaMallocManaged((void**)&point_candidate_camera_index, num_points * sizeof(int)));
-    CUDA_CHECK(cudaMemset(point_candidate_camera_index, -1, num_points * sizeof(int)));
     unsigned int* candidate_camera_mask;
     CUDA_CHECK(cudaMallocManaged((void**)&candidate_camera_mask, num_cameras * sizeof(unsigned int)));
     CUDA_CHECK(cudaMemset(candidate_camera_mask, 0, num_cameras * sizeof(unsigned int)));

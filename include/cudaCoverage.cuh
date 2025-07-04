@@ -49,7 +49,7 @@ __device__ bool is_point_visible(
  * @param intrinsics                camera intrinsics
  * @param d_extrinsics_array        camera extrinsics
  * @param d_points_array            3D points
- * @param d_depth_maps                array of depth maps
+ * @param d_depth_maps              array of depth maps
  * @param d_visibility_matrix       output visibility matrix
  * @param num_cameras               number of cameras
  * @param num_points                number of points
@@ -59,7 +59,7 @@ __global__ void generateVisibilityMatrixKernel(
     const float* __restrict__ d_extrinsics_array, // camera extrinsics
     const float3* __restrict__ d_points_array, // 3D points
     const float* __restrict__ d_depth_maps, // depth maps array
-    unsigned char* __restrict__ d_visibility_matrix, // output visibility matrix
+    float* __restrict__ d_visibility_matrix, // output visibility matrix
     int num_cameras, // number of cameras
     int num_points   // number of points
     ); 
@@ -78,8 +78,8 @@ __global__ void generateVisibilityMatrixKernel(
  * @param num_points                     number of points
  */
 __global__ void findCandidateCameraKernel(
-    const unsigned char* __restrict__ d_visibility_matrix,
-    const int* __restrict__ d_camera_visible_points_count,
+    float* __restrict__ d_visibility_matrix,
+    const float* __restrict__ d_camera_visible_points_count,
     int* __restrict__ d_point_candidate_camera_index,
     unsigned int* __restrict__ d_candidate_camera_mask, // This pointer points to pinned memory accessible by CPU
     int num_cameras,
@@ -107,7 +107,7 @@ void getVisibilityMatrixKernel(
     const float* depth_maps,  // depth maps' array, the sequence is: depth_map number, rows, cols
     int num_cameras,          // camera number, also group number of extrinsics array
     int num_points,           // point number, also length of points array
-    unsigned char* visibility_matrix,   // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU
+    float* visibility_matrix,   // now leave it for debugging, for better design, it shouldn't be here, just pass the data on GPU, do not back load the data to CPU
     unsigned int* candidate_camera_mask, // candidate camera mask, each element is 1 if the camera is a candidate, 0 otherwise, the size is num_cameras.
     int* point_candidate_camera_index // point candidate camera index, each element is the index of the candidate camera for the point, -1 means no camera is chosen for the point, the size is num_points.
 );

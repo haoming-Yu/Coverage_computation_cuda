@@ -61,6 +61,7 @@ target_link_libraries(${PROJECT_NAME}
     stdc++fs
     cuda
     cudart
+    cublas
     ${CUDA_LIBRARIES}
     ${OpenCV_LIBS}
     ${EIGEN3_LIBS}

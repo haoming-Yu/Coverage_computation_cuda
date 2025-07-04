@@ -15,4 +15,15 @@
         }                                                                         \
     } while (0)
 
+// CUBLAS error checking macro
+#define CUBLAS_CHECK(call)                                                        \
+    do {                                                                          \
+        cublasStatus_t status = call;                                             \
+        if (status != CUBLAS_STATUS_SUCCESS) {                                    \
+            fprintf(stderr, "CUBLAS error at %s:%d - status %d\n", __FILE__, __LINE__, \
+                    status);                                                      \
+            exit(EXIT_FAILURE);                                                   \
+        }                                                                         \
+    } while (0)
+
 #endif // CUDA_UTILS_COVERAGE
