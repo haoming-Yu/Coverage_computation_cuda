@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
 
     // for debugging, to check the GPU performance
     // for (int test = 0; test < 100; test++) {
-    //     Coverage::getVisibilityMatrixKernel(cam.float_intrinsic_, cam.float_extrinsic_, vertexes.data(), depth.depth_maps_float_, num_cameras, num_points, visibility_matrix, candidate_camera_mask);
+    //     Coverage::getVisibilityMatrixKernel(cam.unified_float_intrinsic_, cam.unified_float_extrinsic_, mesh.unified_float_vertices_, depth.unified_float_depth_maps_, num_cameras, num_points, visibility_matrix, candidate_camera_mask, point_candidate_camera_index);
     // }
 
     // for debugging, check how many cameras are selected as candidate
