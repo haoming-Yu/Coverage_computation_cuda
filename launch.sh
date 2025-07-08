@@ -9,9 +9,9 @@ echo "data_path: $data_path"
 ./build/COVERAGE -m $data_path/mesh/filtered_mesh.ply -i $data_path/intrinsic.log -e $data_path/traj.log -d $data_path/depth -p $data_path/image
 # create a workspace for mvs-texture to put the result
 cd $data_path
-# if tex_result exists, delete it together with all files in it
-if [ -d "tex_result" ]; then
-    rm -rf tex_result
+# if tex_obj exists, delete it together with all files in it
+if [ -d "tex_obj" ]; then
+    rm -rf tex_obj
 fi
 mkdir -p tex_obj/result
 # run mvs-texture
