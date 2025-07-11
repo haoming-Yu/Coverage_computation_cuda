@@ -5,6 +5,7 @@
 #include <cuda_runtime.h>
 #include <iostream> 
 #include <fstream>
+#include <cassert>
 #include <experimental/filesystem>
 
 // Simple helper to print usage information
@@ -78,39 +79,36 @@ int main(int argc, char** argv) {
     }
 
     MeshProcessing::Mesh mesh;
-    mesh.loadFromFile(mesh_path);
-    std::vector<float3> vertexes = mesh.getVertexes();
-    std::cout << "Vertexes number rechecked: " << vertexes.size() << std::endl;
-
+    mesh.loadFromFile_jetson(mesh_path);
+    int num_points = mesh.vertex_num_;
+    
     Camera::Cam cam;
-    cam.loadIntrinsic(intrinsic_path);
-    cam.loadExtrinsics_colormap(extrinsic_path);
-    cam.dump_intrinsic_to_float(); // prepare for the data loading of gpu
-    // dump has been checked, and the data is correct
-    cam.dump_extrinsic_to_float();
-
+    cam.loadIntrinsic_jetson(intrinsic_path);
+    cam.loadExtrinsics_colormap_jetson(extrinsic_path);
+    int num_cameras = cam.number_extrinsics;
+    
     Depth::Depth depth;
-    depth.loadDepthMaps(depth_dir);
-    depth.convertToFloat();
-
-    // for debugging, to check the camera extrinsics number 10
-    // std::cout << "camera 10's extrinsic: " << std::endl;
-    // std::cout << cam.extrinsics_[10].T_cw << std::endl;
+    depth.loadDepthMaps_jetson(depth_dir);
+    int num_depth_maps = depth.depth_map_num_;
+    
+    assert(num_depth_maps == num_cameras && "number of depth maps should be equal to number of cameras");
 
     // for convenience
-    int num_cameras = cam.extrinsics_.size();
-    int num_points = vertexes.size();
+    float* visibility_matrix;
+    CUDA_CHECK(cudaMallocManaged(&visibility_matrix, sizeof(float) * num_cameras * num_points));
+    int* point_candidate_camera_index;
+    CUDA_CHECK(cudaMallocManaged((void**)&point_candidate_camera_index, num_points * sizeof(int)));
+    unsigned int* candidate_camera_mask;
+    CUDA_CHECK(cudaMallocManaged((void**)&candidate_camera_mask, num_cameras * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemset(candidate_camera_mask, 0, num_cameras * sizeof(unsigned int)));
 
-    unsigned char* visibility_matrix;
-    visibility_matrix = new unsigned char[num_cameras * num_points];
-
-    unsigned int* candidate_camera_mask = new unsigned int[num_cameras];
-    Coverage::getVisibilityMatrixKernel(cam.float_intrinsic_, cam.float_extrinsic_, vertexes.data(), depth.depth_maps_float_, num_cameras, num_points, visibility_matrix, candidate_camera_mask);
+    // get the visibility matrix
+    Coverage::getVisibilityMatrixKernel(cam.unified_float_intrinsic_, cam.unified_float_extrinsic_, mesh.unified_float_vertices_, depth.unified_float_depth_maps_, num_cameras, num_points, visibility_matrix, candidate_camera_mask, point_candidate_camera_index);
     std::cout << "coverage selection finished" << std::endl;
 
     // for debugging, to check the GPU performance
-    // for (int test = 0; test < 5000; test++) {
-    //     Coverage::getVisibilityMatrixKernel(cam.float_intrinsic_, cam.float_extrinsic_, vertexes.data(), depth.depth_maps_float_, num_cameras, num_points, visibility_matrix, candidate_camera_mask);
+    // for (int test = 0; test < 100; test++) {
+    //     Coverage::getVisibilityMatrixKernel(cam.unified_float_intrinsic_, cam.unified_float_extrinsic_, mesh.unified_float_vertices_, depth.unified_float_depth_maps_, num_cameras, num_points, visibility_matrix, candidate_camera_mask, point_candidate_camera_index);
     // }
 
     // for debugging, check how many cameras are selected as candidate

@@ -6,7 +6,6 @@
 export data_path="/home/jetson/Coverage_computation_cuda/data/underground_lighter"
 echo "data_path: $data_path"
 # run a coverage GPU program
-# the program will put the filtered images in the $data_path/(input_image_folder)_filtered_with_cam folder
 ./build/COVERAGE -m $data_path/mesh/filtered_mesh.ply -i $data_path/intrinsic.log -e $data_path/traj.log -d $data_path/depth -p $data_path/image
 # create a workspace for mvs-texture to put the result
 cd $data_path

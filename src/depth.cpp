@@ -32,6 +32,10 @@ void Depth::loadDepthMaps(const std::string& depth_map_file_folder) {
     });
 
     // for debugging, check the depth image's sequence, checked, correct
+    // std::cout << "Depth map files: " << std::endl;
+    // for (const auto& file : depth_map_files) {
+    //     std::cout << file << std::endl;
+    // }
 
     // load the depth maps
     for (const auto& file : depth_map_files) {
@@ -41,6 +45,53 @@ void Depth::loadDepthMaps(const std::string& depth_map_file_folder) {
 
     std::cout << "Depth map size: " << depth_maps_[0].size() << std::endl;
     std::cout << "first depth map's first pixel value (depth in millimeter actually, thus 1000 is the depth scale): " << depth_maps_[0].at<unsigned short>(0, 0) << std::endl;
+}
+
+// load depth maps from the given folder, jetson version
+void Depth::loadDepthMaps_jetson(const std::string& depth_map_file_folder) {
+    std::vector<std::string> depth_map_files;
+    // read all the files in the folder
+    DIR* dir = opendir(depth_map_file_folder.c_str());
+    if (dir == nullptr) {
+        std::cerr << "Failed to open directory: " << depth_map_file_folder << std::endl;
+        return;
+    }
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) {
+            depth_map_files.push_back(entry->d_name);
+        }
+    }
+    depth_map_num_ = depth_map_files.size();
+    std::cout << "Loaded " << depth_map_num_ << " depth maps" << std::endl;
+
+    // sort the depth map files by the number at the end of the file name
+    std::sort(depth_map_files.begin(), depth_map_files.end(), [](const std::string& a, const std::string& b) {
+        return std::stoi(a.substr(a.find_last_of('_') + 1)) < std::stoi(b.substr(b.find_last_of('_') + 1));
+    });
+
+    // load the depth maps
+    std::vector<cv::Mat> depth_maps_jetson;
+    for (const auto& file : depth_map_files) {
+        cv::Mat depth_map = cv::imread(depth_map_file_folder + "/" + file, cv::IMREAD_UNCHANGED);
+        depth_maps_jetson.push_back(depth_map);
+    }
+
+    depth_map_num_ = depth_maps_jetson.size();
+    int row_num = depth_maps_jetson[0].rows;
+    int col_num = depth_maps_jetson[0].cols;
+    CUDA_CHECK(cudaMallocManaged(&this->unified_float_depth_maps_, sizeof(float) * depth_map_num_ * row_num * col_num));
+    for (int i = 0; i < depth_map_num_; i++) {
+        for (int j = 0; j < row_num; j++) {
+            for (int k = 0; k < col_num; k++) {
+                this->unified_float_depth_maps_[i * row_num * col_num + j * col_num + k] = depth_maps_jetson[i].at<unsigned short>(j, k) / 1000.0f;
+            }
+        }
+    }
+
+    // free the depth_maps_jetson as soon as possible
+    depth_maps_jetson.clear();
+    depth_maps_jetson.shrink_to_fit();
 }
 
 // convert the depth maps to float, at the sequence of: depth_maps_sequence, rows, cols
